@@ -1,0 +1,80 @@
+# Production-style stack (standalone, not an override of docker-compose.yml).
+#
+#   cp .env.example .env      # fill in real secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Put a reverse proxy (Caddy / nginx / Traefik) with TLS in front of `api`,
+# and set TRUST_PROXY=1 so rate limiting sees real client IPs.
+# For a managed database (Neon, Supabase, RDS) delete the `db` service and set
+# DATABASE_URL + DB_SSL=true instead.
+
+name: sylheter-janala-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      target: prod
+    init: true
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-4000}:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      RUN_MIGRATIONS_ON_START: "true"
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (32+ chars)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      APP_URL: ${APP_URL:?set APP_URL}
+      API_URL: ${API_URL:?set API_URL}
+      SITE_TIMEZONE: ${SITE_TIMEZONE:-Asia/Dhaka}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      EMAIL_WEBHOOK_SECRET: ${EMAIL_WEBHOOK_SECRET:-}
+
+  web:
+    build:
+      context: ./frontend
+      target: prod
+      args:
+        # inlined into the browser bundle: must be the PUBLIC urls
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL (public API url incl. /api)}
+        NEXT_PUBLIC_SITE_URL: ${APP_URL:?set APP_URL}
+    init: true
+    restart: always
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      API_INTERNAL_URL: http://api:4000/api
+
+volumes:
+  pgdata:

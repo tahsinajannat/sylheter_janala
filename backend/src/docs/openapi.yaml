@@ -1,0 +1,2296 @@
+openapi: 3.0.3
+info:
+  title: Sylheter Janala API
+  version: 1.0.0
+  description: |
+    REST API for **সিলেটের জানালা (Sylheter Janala)**, a bilingual (Bangla / English) news portal.
+
+    ## Conventions
+
+    * **Envelope.** Success: `{ "data": …, "meta": … }` (`meta` only on paged lists). Error: `{ "error": { "message", "details?" } }`.
+    * **Language.** Content is stored per language (`bn` / `en`). Every public read takes a required `lang` query parameter.
+    * **Published only.** Public endpoints return only content whose status is `published` and whose `publishedAt` is in the past. Drafts and scheduled items are visible only through `/admin`.
+    * **Paging.** `page` (from 1) and `limit` (1–50, default 12). Responses include `meta: { page, limit, total, totalPages }`.
+    * **Slugs.** Slugs are unique per language and may contain Bangla letters. URL-encode them in paths.
+    * **IDs** are UUIDs.
+
+    ## Authentication
+
+    Send `Authorization: Bearer <token>`. There are two kinds of accounts, with separate login endpoints:
+
+    | Kind | Login | Used for |
+    |---|---|---|
+    | **staff** (`admin`, `editor`, `author`) | `POST /auth/login` | everything under `/admin` |
+    | **reader** (public visitor) | `POST /auth/reader/login` | comments, bookmarks |
+
+    A staff token cannot call reader endpoints and vice versa (403). Tokens are checked against the database on every request, so disabling an account takes effect immediately.
+
+    ## Staff roles
+
+    | Role | Can |
+    |---|---|
+    | `author` | create / edit **own drafts**; upload images; create tags. Cannot publish, schedule, or use hero / spotlight / featured placement |
+    | `editor` | everything content: publish & schedule, placement, categories, comment moderation, subscribers, newsletters |
+    | `admin` | everything, plus staff accounts and site settings |
+
+    Each admin operation lists the roles that may call it.
+
+    ## Rate limits
+
+    Login / register: 20 per 15 min per IP. Subscribe / confirm: 10 per hour. Counters: 120 per min. Comments: 20 per min. Everything else: 300 per min. Exceeded limits return `429` with `RateLimit` / `Retry-After` headers.
+  license:
+    name: Proprietary
+servers:
+  - url: /api
+    description: This server
+tags:
+  - name: Home
+    description: The home page in one call
+  - name: Posts
+    description: News articles and editorials
+  - name: Photo cards
+    description: Photo slider and photo pages
+  - name: Videos
+    description: YouTube video news
+  - name: Taxonomy
+    description: Categories, tags and public site settings
+  - name: Newsletter
+    description: Email subscription (double opt-in)
+  - name: Accounts
+    description: Staff and reader sign-in
+  - name: Reader
+    description: Bookmarks (reader account required)
+  - name: Webhooks
+    description: Email provider callbacks
+  - name: Admin / Posts
+  - name: Admin / Photo cards
+  - name: Admin / Videos
+  - name: Admin / Media
+  - name: Admin / Taxonomy
+  - name: Admin / Comments
+  - name: Admin / Subscribers
+  - name: Admin / Newsletters
+  - name: Admin / Users
+  - name: Admin / Settings
+  - name: System
+
+paths:
+  /health:
+    servers:
+      - url: /
+    get:
+      tags: [System]
+      summary: Health check
+      description: Checks the database connection. Not under `/api`, not rate limited. Used by Docker health checks.
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string, example: ok } } }
+        '503':
+          description: Database unreachable
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string, example: unavailable } } }
+
+  # ───────────────────────── Public ─────────────────────────
+  /home:
+    get:
+      tags: [Home]
+      summary: Everything the home page needs
+      description: |
+        One call for all home sections.
+
+        * `spotlight` – up to 4 posts; `position` (1–4) lets the frontend vary the card layout per slot.
+        * `otherLanguage` – latest posts of the *other* language plus that language portal's URL.
+        * `hero` falls back to the latest post when none is flagged.
+      parameters: [{ $ref: '#/components/parameters/Lang' }]
+      responses:
+        '200':
+          description: Home payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/HomePayload' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /posts:
+    get:
+      tags: [Posts]
+      summary: List / search posts
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+        - { name: type, in: query, schema: { type: string, enum: [news, editorial], default: news } }
+        - { name: category, in: query, description: Category slug, schema: { type: string } }
+        - { name: tag, in: query, description: Tag slug, schema: { type: string } }
+        - { name: q, in: query, description: 'Search in title and excerpt (2–100 chars). Works for Bangla.', schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: exclude, in: query, description: Post id to leave out, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of posts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /posts/popular:
+    get:
+      tags: [Posts]
+      summary: Most popular posts
+      description: Ranked by views in the window (`day` = today, `week` = last 7 days, `month` = last 30 days, in the site time zone). On a quiet site the list is topped up with all-time most viewed.
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+        - { name: range, in: query, schema: { type: string, enum: [day, week, month], default: week } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+      responses:
+        '200':
+          description: Popular posts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { type: array, items: { $ref: '#/components/schemas/PostCard' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /posts/{slug}:
+    get:
+      tags: [Posts]
+      summary: Single post (article page)
+      description: Article with content, tags, language-switcher links, related posts (same category / shared tags) and this week's popular posts.
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: The post
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/PostDetail' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /posts/{id}/view:
+    post:
+      tags: [Posts]
+      summary: Count a view
+      description: Call once per visit (the frontend de-duplicates per session). Updates the post total and today's counter used by "most popular".
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '204': { description: Counted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /posts/{id}/share:
+    post:
+      tags: [Posts]
+      summary: Count a share
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: New share total
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { shareCount: { type: integer } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /posts/{id}/comments:
+    get:
+      tags: [Posts]
+      summary: Approved comments of a post
+      description: Flat list, oldest first (max 300). Use `parentId` to nest replies.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200':
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Comment' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Posts]
+      summary: Add a comment (reader)
+      description: Requires a **reader** token. The comment is stored as `pending` and shown only after an editor approves it.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 2000 }
+                parentId: { type: string, format: uuid, description: Id of an approved comment on the same post }
+      responses:
+        '201':
+          description: Accepted, awaiting moderation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      status: { type: string, example: pending }
+                      message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /photo-cards:
+    get:
+      tags: [Photo cards]
+      summary: List photo cards
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+        - { name: slider, in: query, description: 'Pass `true` for the home slider only (ordered by slider position)', schema: { type: string, enum: ['true'] } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of photo cards
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/PhotoCard' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /photo-cards/{slug}:
+    get:
+      tags: [Photo cards]
+      summary: Photo card page
+      description: The card plus up to 8 related cards (same category, shared tags, then newest).
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: The photo card
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/PhotoCardDetail' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /photo-cards/{id}/view:
+    post:
+      tags: [Photo cards]
+      summary: Count a view
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '204': { description: Counted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /videos:
+    get:
+      tags: [Videos]
+      summary: List videos
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of videos
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Video' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /videos/{slug}:
+    get:
+      tags: [Videos]
+      summary: Video page
+      description: The video plus up to 8 related videos (same category first, then newest).
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+        - $ref: '#/components/parameters/Lang'
+      responses:
+        '200':
+          description: The video
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/VideoDetail' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /videos/{id}/view:
+    post:
+      tags: [Videos]
+      summary: Count a view
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '204': { description: Counted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /categories:
+    get:
+      tags: [Taxonomy]
+      summary: Categories of a language (navbar)
+      parameters: [{ $ref: '#/components/parameters/Lang' }]
+      responses:
+        '200':
+          description: Categories ordered for the navbar
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Category' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /tags:
+    get:
+      tags: [Taxonomy]
+      summary: Tags with published post counts
+      parameters: [{ $ref: '#/components/parameters/Lang' }]
+      responses:
+        '200':
+          description: Up to 60 tags, most used first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/TagWithCount' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /settings:
+    get:
+      tags: [Taxonomy]
+      summary: Public site settings
+      description: 'Only keys safe for the public site: `bn_portal_url`, `en_portal_url`, `site_*`, `social_*`.'
+      responses:
+        '200':
+          description: Key / value map
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, additionalProperties: { type: string } }
+
+  /subscribers:
+    post:
+      tags: [Newsletter]
+      summary: Subscribe (starts double opt-in)
+      description: |
+        Creates a `pending` subscriber and emails a confirmation link (valid 48 h).
+        The reply is identical whether or not the address is already subscribed (no account enumeration).
+        Re-sending is throttled to once per minute per address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                lang: { $ref: '#/components/schemas/Lang' }
+                source: { type: string, maxLength: 40, description: 'Where the form was, e.g. `footer`' }
+      responses:
+        '202':
+          description: Confirmation email sent (or already subscribed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: pending }
+                      message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { description: The confirmation email could not be sent; retry shortly, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /subscribers/confirm:
+    post:
+      tags: [Newsletter]
+      summary: Confirm a subscription
+      description: Called by the frontend page the email link points to. It is a POST on purpose, because mail scanners prefetch GET links. Idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: { token: { type: string, minLength: 16, maxLength: 128 } }
+      responses:
+        '200':
+          description: Subscription is active
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: active }
+                      lang: { $ref: '#/components/schemas/Lang' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '410': { description: Link invalid or expired, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /subscribers/unsubscribe:
+    post:
+      tags: [Newsletter]
+      summary: Unsubscribe
+      description: |
+        Token comes from the link in every newsletter. Accepts the token in a JSON body **or** as `?token=`,
+        and also a `application/x-www-form-urlencoded` body, so it doubles as the RFC 8058 *one-click* endpoint
+        referenced by the `List-Unsubscribe-Post` header. Idempotent.
+      parameters:
+        - { name: token, in: query, schema: { type: string, minLength: 16, maxLength: 128 } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { token: { type: string } } }
+          application/x-www-form-urlencoded:
+            schema: { type: object, properties: { List-Unsubscribe: { type: string, example: One-Click } } }
+      responses:
+        '200':
+          description: Unsubscribed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: unsubscribed }
+                      lang: { $ref: '#/components/schemas/Lang' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhooks/email:
+    post:
+      tags: [Webhooks]
+      summary: Email provider event (bounce / complaint)
+      description: |
+        Provider-neutral. Point your provider's webhook at a small adapter that maps to this body.
+        Send `bounce` for **hard** bounces only. `bounce` → subscriber becomes `bounced`; `complaint` → `unsubscribed`.
+        Disabled (404) unless `EMAIL_WEBHOOK_SECRET` is set.
+      parameters:
+        - { name: x-webhook-secret, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, email]
+              properties:
+                event: { type: string, enum: [bounce, complaint] }
+                email: { type: string, format: email }
+      responses:
+        '204': { description: Processed }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Accounts ─────────────────────────
+  /auth/login:
+    post:
+      tags: [Accounts]
+      summary: Staff login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      token: { type: string }
+                      user: { $ref: '#/components/schemas/StaffUserBrief' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/reader/register:
+    post:
+      tags: [Accounts]
+      summary: Create a reader account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 72 }
+                preferredLang: { $ref: '#/components/schemas/Lang' }
+      responses:
+        '201':
+          description: Account created and signed in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReaderSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/reader/login:
+    post:
+      tags: [Accounts]
+      summary: Reader login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReaderSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/me:
+    get:
+      tags: [Accounts]
+      summary: Who am I
+      description: Works with a staff or a reader token.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The signed-in account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Me' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /bookmarks:
+    get:
+      tags: [Reader]
+      summary: My bookmarked posts
+      description: Requires a **reader** token.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /bookmarks/{postId}:
+    put:
+      tags: [Reader]
+      summary: Bookmark a post (idempotent)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: postId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Bookmarked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Reader]
+      summary: Remove a bookmark
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: postId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ───────────────────────── Admin: posts ─────────────────────────
+  /admin/posts:
+    get:
+      tags: [Admin / Posts]
+      summary: List posts (all statuses)
+      description: 'Roles: **author** (own posts only), editor, admin.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: lang, in: query, schema: { $ref: '#/components/schemas/Lang' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ContentStatus' } }
+        - { name: type, in: query, schema: { type: string, enum: [news, editorial] } }
+        - { name: q, in: query, description: Search in title, schema: { type: string } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of post summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminPostSummary' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin / Posts]
+      summary: Create a post
+      description: |
+        Roles: author (drafts only), editor, admin.
+
+        * `content` is sanitised (scripts, event handlers, `javascript:` links removed) and `readMinutes` is computed.
+        * Without `slug`, one is generated from the title (Bangla kept) and de-duplicated; an explicit duplicate `slug` returns 409.
+        * `status: scheduled` needs a future `publishedAt`; the post goes live automatically.
+        * Category and tags must be in the same language as the post.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminPost' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/posts/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Admin / Posts]
+      summary: Get a post (with full content)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The post
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminPost' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin / Posts]
+      summary: Update a post (partial)
+      description: 'Roles: author (own drafts), editor, admin. The language cannot be changed. Send `tagIds` to replace the tag set.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminPost' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Admin / Posts]
+      summary: Delete a post
+      description: 'Roles: author (own drafts), editor, admin. Tags links, view counters, comments and bookmarks are removed with it.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/posts/{id}/translation:
+    post:
+      tags: [Admin / Posts]
+      summary: Link a post with its translation
+      description: 'Roles: editor, admin. Gives both posts the same `translationKey`, which powers the language switcher and cross-portal links. The two posts must be in different languages.'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [postId]
+              properties: { postId: { type: string, format: uuid, description: The other-language post } }
+      responses:
+        '200':
+          description: Linked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { translationKey: { type: string, format: uuid } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Admin: photo cards ─────────────────────────
+  /admin/photo-cards:
+    get:
+      tags: [Admin / Photo cards]
+      summary: List photo cards (all statuses)
+      description: 'Roles: author (own), editor, admin.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: lang, in: query, schema: { $ref: '#/components/schemas/Lang' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ContentStatus' } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of photo cards
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminPhotoCard' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin / Photo cards]
+      summary: Create a photo card
+      description: 'Roles: author (drafts only), editor, admin. `imageId` is a media id from `POST /admin/media`.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhotoCardInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminPhotoCard' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/photo-cards/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Admin / Photo cards]
+      summary: Get a photo card
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The photo card
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminPhotoCard' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin / Photo cards]
+      summary: Update a photo card (partial)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhotoCardUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminPhotoCard' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin / Photo cards]
+      summary: Delete a photo card
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Admin: videos ─────────────────────────
+  /admin/videos:
+    get:
+      tags: [Admin / Videos]
+      summary: List videos (all statuses)
+      description: 'Roles: author (own), editor, admin.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: lang, in: query, schema: { $ref: '#/components/schemas/Lang' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ContentStatus' } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of videos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminVideo' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin / Videos]
+      summary: Create a video
+      description: 'Roles: author (drafts only), editor, admin. `youtubeUrl` may be a watch, youtu.be, embed or shorts link; the 11-character id is extracted. Other links are rejected.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VideoInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminVideo' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/videos/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Admin / Videos]
+      summary: Get a video
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The video
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminVideo' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin / Videos]
+      summary: Update a video (partial)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VideoUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminVideo' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin / Videos]
+      summary: Delete a video
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Admin: media ─────────────────────────
+  /admin/stats:
+    get:
+      tags: [Admin / Dashboard]
+      summary: Dashboard numbers
+      description: 'Roles: author (own content only), editor, admin. Counts by status, views today / 7 / 30 days, a 14-day series, top stories, pending comments and subscribers by status.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      posts: { type: object, additionalProperties: { type: integer } }
+                      photoCards: { type: object, additionalProperties: { type: integer } }
+                      videos: { type: object, additionalProperties: { type: integer } }
+                      views:
+                        type: object
+                        properties: { today: { type: integer }, week: { type: integer }, month: { type: integer } }
+                      viewsByDay:
+                        type: array
+                        items:
+                          type: object
+                          properties: { day: { type: string, format: date }, views: { type: integer } }
+                      topPosts: { type: array, items: { type: object } }
+                      pendingComments: { type: integer }
+                      subscribers: { type: object, additionalProperties: { type: integer } }
+                      recentPosts: { type: array, items: { type: object } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /admin/media:
+    get:
+      tags: [Admin / Media]
+      summary: List uploaded images
+      description: 'Roles: any staff.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of images
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Media' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Admin / Media]
+      summary: Upload an image (Cloudinary)
+      description: |
+        Roles: any staff. `multipart/form-data`, field **`file`**.
+        Maximum **10 MB** (strictly less than 10 485 760 bytes); JPEG, PNG, WebP, GIF or AVIF only.
+        Returns `503` when Cloudinary is not configured, `413` when too large, `415` for other file types.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                alt: { type: string, maxLength: 250 }
+                caption: { type: string, maxLength: 500 }
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Media' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { description: File larger than 10 MB, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '415': { description: Not an allowed image type, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: Cloudinary is not configured, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /admin/media/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Admin / Media]
+      summary: Edit alt text / caption
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alt: { type: string, maxLength: 250 }
+                caption: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Media' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin / Media]
+      summary: Delete an image
+      description: 'Roles: editor, admin. Also removes it from Cloudinary. `409` if a photo card still uses it; posts simply lose their featured image.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ───────────────────────── Admin: taxonomy ─────────────────────────
+  /admin/categories:
+    get:
+      tags: [Admin / Taxonomy]
+      summary: List categories (with post counts)
+      description: 'Roles: any staff.'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: lang, in: query, schema: { $ref: '#/components/schemas/Lang' } }]
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminCategory' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Admin / Taxonomy]
+      summary: Create a category
+      description: 'Roles: editor, admin. Give the bn and en version of the same category the same `translationKey`.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminCategory' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/categories/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Admin / Taxonomy]
+      summary: Update a category
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminCategory' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin / Taxonomy]
+      summary: Delete a category
+      description: 'Roles: editor, admin. `409` while posts still use it.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/tags:
+    get:
+      tags: [Admin / Taxonomy]
+      summary: List / search tags
+      description: 'Roles: any staff.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: lang, in: query, schema: { $ref: '#/components/schemas/Lang' } }
+        - { name: q, in: query, description: Name contains, schema: { type: string } }
+      responses:
+        '200':
+          description: Up to 200 tags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminTag' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Admin / Taxonomy]
+      summary: Create a tag
+      description: 'Roles: any staff (so authors can tag while writing).'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lang, name]
+              properties:
+                lang: { $ref: '#/components/schemas/Lang' }
+                name: { type: string, minLength: 2, maxLength: 60 }
+                slug: { type: string, maxLength: 60 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminTag' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/tags/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Admin / Taxonomy]
+      summary: Rename a tag
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2, maxLength: 60 }
+                slug: { type: string, maxLength: 60 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/AdminTag' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin / Taxonomy]
+      summary: Delete a tag
+      description: 'Roles: editor, admin. Removed from all posts / photo cards.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Admin: comments ─────────────────────────
+  /admin/comments:
+    get:
+      tags: [Admin / Comments]
+      summary: Moderation queue
+      description: 'Roles: editor, admin. Defaults to `pending`, oldest first.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/CommentStatus' } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminComment' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/comments/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Admin / Comments]
+      summary: Approve / reject / mark spam
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties: { status: { $ref: '#/components/schemas/CommentStatus' } }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      status: { $ref: '#/components/schemas/CommentStatus' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin / Comments]
+      summary: Delete a comment (and its replies)
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Admin: subscribers & newsletters ─────────────────────────
+  /admin/subscribers:
+    get:
+      tags: [Admin / Subscribers]
+      summary: List subscribers
+      description: 'Roles: editor, admin. `meta.summary` has the count per status over all subscribers.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/SubscriberStatus' } }
+        - { name: lang, in: query, schema: { $ref: '#/components/schemas/Lang' } }
+        - { name: q, in: query, description: Email contains, schema: { type: string } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of subscribers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Subscriber' } }
+                  meta:
+                    allOf:
+                      - $ref: '#/components/schemas/PageMeta'
+                      - type: object
+                        properties:
+                          summary:
+                            type: object
+                            additionalProperties: { type: integer }
+                            example: { active: 120, pending: 4, unsubscribed: 9, bounced: 2 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/subscribers/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    delete:
+      tags: [Admin / Subscribers]
+      summary: Permanently delete a subscriber
+      description: 'Roles: editor, admin. For data-removal requests.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/newsletters:
+    get:
+      tags: [Admin / Newsletters]
+      summary: List campaigns with delivery stats
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Campaign' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin / Newsletters]
+      summary: Create a draft campaign
+      description: 'Roles: editor, admin. `bodyHtml` is sanitised. The unsubscribe footer and headers are added automatically.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lang, subject, bodyHtml]
+              properties:
+                lang: { $ref: '#/components/schemas/Lang' }
+                subject: { type: string, minLength: 3, maxLength: 200 }
+                bodyHtml: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Campaign' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/newsletters/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Admin / Newsletters]
+      summary: One campaign, with delivery stats
+      description: 'Roles: editor, admin.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The campaign
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Campaign' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin / Newsletters]
+      summary: Edit a draft campaign
+      description: 'Roles: editor, admin. `409` once it is no longer a draft.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject: { type: string, minLength: 3, maxLength: 200 }
+                bodyHtml: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Campaign' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Admin / Newsletters]
+      summary: Delete a draft campaign
+      description: 'Roles: editor, admin. Only drafts can be deleted.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/newsletters/{id}/test:
+    post:
+      tags: [Admin / Newsletters]
+      summary: Send a test email
+      description: 'Roles: editor, admin. The unsubscribe link in a test is not live.'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string, format: email } }
+      responses:
+        '202':
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, properties: { sent: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/newsletters/{id}/send:
+    post:
+      tags: [Admin / Newsletters]
+      summary: Send the campaign
+      description: |
+        Roles: editor, admin. Queues one delivery per **active** subscriber in the campaign's language and marks the
+        campaign `sending`. A background worker sends in batches of 20 every 15 s, survives restarts, and skips anyone
+        who unsubscribed meanwhile. `400` when there are no recipients; `409` if it was already sent.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '202':
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      status: { type: string, example: sending }
+                      recipients: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ───────────────────────── Admin: users & settings ─────────────────────────
+  /admin/users:
+    get:
+      tags: [Admin / Users]
+      summary: List staff accounts
+      description: 'Roles: admin.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Staff accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/StaffUser' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin / Users]
+      summary: Create a staff account
+      description: 'Roles: admin. Role defaults to `author`.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 72 }
+                role: { $ref: '#/components/schemas/StaffRole' }
+                bio: { type: string, maxLength: 500, nullable: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/StaffUser' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/users/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Admin / Users]
+      summary: Update a staff account
+      description: 'Roles: admin. Deactivating an account (`isActive: false`) invalidates its tokens immediately. An admin cannot demote or deactivate themselves.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                role: { $ref: '#/components/schemas/StaffRole' }
+                bio: { type: string, maxLength: 500, nullable: true }
+                isActive: { type: boolean }
+                password: { type: string, minLength: 8, maxLength: 72 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/StaffUser' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/settings:
+    get:
+      tags: [Admin / Settings]
+      summary: All site settings
+      description: 'Roles: admin.'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Setting' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/settings/{key}:
+    put:
+      tags: [Admin / Settings]
+      summary: Create or update a setting
+      description: 'Roles: admin. Keys are lowercase letters, digits and underscores. Keys `bn_portal_url`, `en_portal_url`, `site_*` and `social_*` are exposed publicly by `GET /settings`.'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string, pattern: '^[a-z0-9_]{2,64}$' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties: { value: { type: string, maxLength: 2000 } }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: '#/components/schemas/Setting' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token from `POST /auth/login` (staff) or `POST /auth/reader/login` (reader).
+
+  parameters:
+    Lang:
+      name: lang
+      in: query
+      required: true
+      description: Content language
+      schema: { $ref: '#/components/schemas/Lang' }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Slug:
+      name: slug
+      in: path
+      required: true
+      description: URL slug (may contain Bangla; URL-encode)
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              message: Validation failed
+              details: [{ path: lang, message: 'Invalid option: expected one of "bn"|"en"' }]
+    Unauthorized:
+      description: Missing, invalid or expired token (or wrong credentials)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated, but this account type or role may not do this
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Conflicts with existing data (duplicate slug / email, record in use, wrong state)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds until you may retry }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ── primitives ──
+    Lang: { type: string, enum: [bn, en] }
+    ContentStatus: { type: string, enum: [draft, scheduled, published, archived] }
+    CommentStatus: { type: string, enum: [pending, approved, rejected, spam] }
+    SubscriberStatus: { type: string, enum: [pending, active, unsubscribed, bounced] }
+    StaffRole: { type: string, enum: [admin, editor, author] }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message]
+          properties:
+            message: { type: string }
+            details: {}
+    PageMeta:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+    Image:
+      type: object
+      required: [url, width, height]
+      properties:
+        url: { type: string, format: uri }
+        alt: { type: string, nullable: true }
+        width: { type: integer }
+        height: { type: integer }
+    NamedRef:
+      type: object
+      required: [slug, name]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+
+    # ── public content ──
+    PostCard:
+      type: object
+      required: [id, lang, type, slug, title, publishedAt, viewCount, category, author]
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        type: { type: string, enum: [news, editorial] }
+        slug: { type: string }
+        title: { type: string }
+        excerpt: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time }
+        viewCount: { type: integer }
+        readMinutes: { type: integer, nullable: true }
+        category: { $ref: '#/components/schemas/NamedRef' }
+        author: { type: object, required: [name], properties: { name: { type: string } } }
+        image:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/Image' }]
+    SpotlightPost:
+      allOf:
+        - $ref: '#/components/schemas/PostCard'
+        - type: object
+          required: [position]
+          properties:
+            position: { type: integer, minimum: 1, maximum: 4, description: Slot in the spotlight section }
+    PostDetail:
+      allOf:
+        - $ref: '#/components/schemas/PostCard'
+        - type: object
+          required: [content, shareCount, seo, tags, translations, related, popular]
+          properties:
+            content: { type: string, description: Sanitised HTML }
+            imageCaption: { type: string, nullable: true }
+            shareCount: { type: integer }
+            seo:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string, nullable: true }
+            tags: { type: array, items: { $ref: '#/components/schemas/NamedRef' } }
+            translations:
+              type: array
+              description: The same story in other languages, for the language switcher
+              items:
+                type: object
+                required: [lang, slug]
+                properties:
+                  lang: { $ref: '#/components/schemas/Lang' }
+                  slug: { type: string }
+            related: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+            popular: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+    PhotoCard:
+      type: object
+      required: [id, lang, slug, title, publishedAt, viewCount, image]
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        slug: { type: string }
+        title: { type: string }
+        caption: { type: string, nullable: true }
+        photographer: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time }
+        viewCount: { type: integer }
+        category:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/NamedRef' }]
+        image: { $ref: '#/components/schemas/Image' }
+    PhotoCardDetail:
+      allOf:
+        - $ref: '#/components/schemas/PhotoCard'
+        - type: object
+          required: [tags, related]
+          properties:
+            tags: { type: array, items: { $ref: '#/components/schemas/NamedRef' } }
+            related: { type: array, items: { $ref: '#/components/schemas/PhotoCard' } }
+    Video:
+      type: object
+      required: [id, lang, slug, title, youtubeId, youtubeUrl, embedUrl, thumbnail, isFeatured, publishedAt, viewCount]
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        youtubeId: { type: string, example: dQw4w9WgXcQ }
+        youtubeUrl: { type: string, format: uri }
+        embedUrl: { type: string, format: uri, description: Privacy-enhanced (youtube-nocookie) embed URL }
+        thumbnail: { type: string, format: uri, description: 'Custom thumbnail, otherwise the YouTube one' }
+        isFeatured: { type: boolean }
+        publishedAt: { type: string, format: date-time }
+        viewCount: { type: integer }
+        category:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/NamedRef' }]
+    VideoDetail:
+      allOf:
+        - $ref: '#/components/schemas/Video'
+        - type: object
+          required: [related]
+          properties:
+            related: { type: array, items: { $ref: '#/components/schemas/Video' } }
+    Category:
+      type: object
+      required: [id, slug, name, sortOrder, showInNav]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        sortOrder: { type: integer }
+        showInNav: { type: boolean }
+        translationKey: { type: string, format: uuid, nullable: true }
+    TagWithCount:
+      type: object
+      required: [slug, name, posts]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        posts: { type: integer }
+    Comment:
+      type: object
+      required: [id, body, createdAt, author]
+      properties:
+        id: { type: string, format: uuid }
+        parentId: { type: string, format: uuid, nullable: true }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        author:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string }
+            avatarUrl: { type: string, nullable: true }
+    HomePayload:
+      type: object
+      required: [lang, spotlight, featured, latest, otherLanguage, photoCards, editorials, videos]
+      properties:
+        lang: { $ref: '#/components/schemas/Lang' }
+        hero:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/PostCard' }]
+        spotlight: { type: array, items: { $ref: '#/components/schemas/SpotlightPost' } }
+        featured: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+        latest: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+        otherLanguage:
+          type: object
+          required: [lang, posts]
+          properties:
+            lang: { $ref: '#/components/schemas/Lang' }
+            portalUrl: { type: string, nullable: true, description: 'Base URL of the other language portal (`<portalUrl>/news/<slug>` is a post)' }
+            posts: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+        photoCards: { type: array, items: { $ref: '#/components/schemas/PhotoCard' } }
+        editorials: { type: array, items: { $ref: '#/components/schemas/PostCard' } }
+        videos: { type: array, items: { $ref: '#/components/schemas/Video' } }
+
+    # ── accounts ──
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, maxLength: 72 }
+    StaffUserBrief:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/StaffRole' }
+    ReaderSession:
+      type: object
+      properties:
+        data:
+          type: object
+          required: [token, reader]
+          properties:
+            token: { type: string }
+            reader:
+              type: object
+              required: [id, name, email, preferredLang]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+                email: { type: string, format: email }
+                preferredLang: { $ref: '#/components/schemas/Lang' }
+    Me:
+      type: object
+      required: [id, name, email, kind]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        kind: { type: string, enum: [staff, reader] }
+        role: { $ref: '#/components/schemas/StaffRole' }
+
+    # ── admin ──
+    PostInput:
+      type: object
+      required: [lang, title, content, categoryId]
+      properties: &postFields
+        lang: { $ref: '#/components/schemas/Lang' }
+        type: { type: string, enum: [news, editorial], default: news }
+        title: { type: string, minLength: 3, maxLength: 300 }
+        slug: { type: string, maxLength: 120, description: Optional. Generated from the title when omitted }
+        excerpt: { type: string, maxLength: 600, nullable: true }
+        content: { type: string, maxLength: 200000, description: HTML. Sanitised on save }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        featuredImageId: { type: string, format: uuid, nullable: true }
+        categoryId: { type: string, format: uuid }
+        isHero: { type: boolean }
+        isSpotlight: { type: boolean }
+        spotlightOrder: { type: integer, minimum: 0, maximum: 1000 }
+        isFeatured: { type: boolean }
+        featuredOrder: { type: integer, minimum: 0, maximum: 1000 }
+        translationKey: { type: string, format: uuid, nullable: true }
+        metaTitle: { type: string, maxLength: 200, nullable: true }
+        metaDescription: { type: string, maxLength: 400, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        tagIds: { type: array, items: { type: string, format: uuid }, maxItems: 20 }
+    PostUpdate:
+      type: object
+      description: Same fields as PostInput except `lang`; all optional
+      properties:
+        type: { type: string, enum: [news, editorial] }
+        title: { type: string, minLength: 3, maxLength: 300 }
+        slug: { type: string, maxLength: 120 }
+        excerpt: { type: string, maxLength: 600, nullable: true }
+        content: { type: string, maxLength: 200000 }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        featuredImageId: { type: string, format: uuid, nullable: true }
+        categoryId: { type: string, format: uuid }
+        isHero: { type: boolean }
+        isSpotlight: { type: boolean }
+        spotlightOrder: { type: integer, minimum: 0, maximum: 1000 }
+        isFeatured: { type: boolean }
+        featuredOrder: { type: integer, minimum: 0, maximum: 1000 }
+        translationKey: { type: string, format: uuid, nullable: true }
+        metaTitle: { type: string, maxLength: 200, nullable: true }
+        metaDescription: { type: string, maxLength: 400, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        tagIds: { type: array, items: { type: string, format: uuid }, maxItems: 20 }
+    AdminPostSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        type: { type: string, enum: [news, editorial] }
+        slug: { type: string }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time }
+        viewCount: { type: integer }
+        isHero: { type: boolean }
+        isSpotlight: { type: boolean }
+        isFeatured: { type: boolean }
+        categoryName: { type: string }
+        authorName: { type: string }
+    AdminPost:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        type: { type: string, enum: [news, editorial] }
+        slug: { type: string }
+        title: { type: string }
+        excerpt: { type: string, nullable: true }
+        content: { type: string }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        featuredImageId: { type: string, format: uuid, nullable: true }
+        categoryId: { type: string, format: uuid }
+        authorId: { type: string, format: uuid }
+        authorName: { type: string }
+        isHero: { type: boolean }
+        isSpotlight: { type: boolean }
+        spotlightOrder: { type: integer }
+        isFeatured: { type: boolean }
+        featuredOrder: { type: integer }
+        translationKey: { type: string, format: uuid, nullable: true }
+        viewCount: { type: integer }
+        shareCount: { type: integer }
+        readMinutes: { type: integer, nullable: true }
+        metaTitle: { type: string, nullable: true }
+        metaDescription: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        tagIds: { type: array, items: { type: string, format: uuid } }
+    PhotoCardInput:
+      type: object
+      required: [lang, title, imageId]
+      properties:
+        lang: { $ref: '#/components/schemas/Lang' }
+        title: { type: string, minLength: 2, maxLength: 200 }
+        slug: { type: string, maxLength: 120 }
+        caption: { type: string, maxLength: 1000, nullable: true }
+        photographer: { type: string, maxLength: 120, nullable: true }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        imageId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid, nullable: true }
+        isSlider: { type: boolean, default: true }
+        sliderOrder: { type: integer, minimum: 0, maximum: 1000 }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        tagIds: { type: array, items: { type: string, format: uuid }, maxItems: 20 }
+    PhotoCardUpdate:
+      type: object
+      description: Same fields as PhotoCardInput except `lang`; all optional
+      properties:
+        title: { type: string, minLength: 2, maxLength: 200 }
+        slug: { type: string, maxLength: 120 }
+        caption: { type: string, maxLength: 1000, nullable: true }
+        photographer: { type: string, maxLength: 120, nullable: true }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        imageId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid, nullable: true }
+        isSlider: { type: boolean }
+        sliderOrder: { type: integer, minimum: 0, maximum: 1000 }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        tagIds: { type: array, items: { type: string, format: uuid }, maxItems: 20 }
+    AdminPhotoCard:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        slug: { type: string }
+        title: { type: string }
+        caption: { type: string, nullable: true }
+        photographer: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        imageId: { type: string, format: uuid }
+        imageUrl: { type: string, format: uri }
+        categoryId: { type: string, format: uuid, nullable: true }
+        isSlider: { type: boolean }
+        sliderOrder: { type: integer }
+        viewCount: { type: integer }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time }
+        tagIds: { type: array, items: { type: string, format: uuid } }
+    VideoInput:
+      type: object
+      required: [lang, title, youtubeUrl]
+      properties:
+        lang: { $ref: '#/components/schemas/Lang' }
+        title: { type: string, minLength: 2, maxLength: 250 }
+        slug: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 5000, nullable: true }
+        youtubeUrl: { type: string, format: uri }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        thumbnailId: { type: string, format: uuid, nullable: true }
+        categoryId: { type: string, format: uuid, nullable: true }
+        isFeatured: { type: boolean }
+        publishedAt: { type: string, format: date-time, nullable: true }
+    VideoUpdate:
+      type: object
+      description: Same fields as VideoInput except `lang`; all optional
+      properties:
+        title: { type: string, minLength: 2, maxLength: 250 }
+        slug: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 5000, nullable: true }
+        youtubeUrl: { type: string, format: uri }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        thumbnailId: { type: string, format: uuid, nullable: true }
+        categoryId: { type: string, format: uuid, nullable: true }
+        isFeatured: { type: boolean }
+        publishedAt: { type: string, format: date-time, nullable: true }
+    AdminVideo:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        youtubeUrl: { type: string, format: uri }
+        youtubeId: { type: string }
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        thumbnailId: { type: string, format: uuid, nullable: true }
+        categoryId: { type: string, format: uuid, nullable: true }
+        isFeatured: { type: boolean }
+        viewCount: { type: integer }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time }
+    Media:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        width: { type: integer }
+        height: { type: integer }
+        bytes: { type: integer, maximum: 10485759 }
+        format: { type: string, example: jpg }
+        alt: { type: string, nullable: true }
+        caption: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    CategoryInput:
+      type: object
+      required: [lang, name]
+      properties:
+        lang: { $ref: '#/components/schemas/Lang' }
+        name: { type: string, minLength: 2, maxLength: 80 }
+        slug: { type: string, maxLength: 80 }
+        sortOrder: { type: integer, minimum: 0, maximum: 1000 }
+        showInNav: { type: boolean }
+        translationKey: { type: string, format: uuid, nullable: true }
+    CategoryUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        slug: { type: string, maxLength: 80 }
+        sortOrder: { type: integer, minimum: 0, maximum: 1000 }
+        showInNav: { type: boolean }
+        translationKey: { type: string, format: uuid, nullable: true }
+    AdminCategory:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        slug: { type: string }
+        name: { type: string }
+        sortOrder: { type: integer }
+        showInNav: { type: boolean }
+        translationKey: { type: string, format: uuid, nullable: true }
+        posts: { type: integer, description: Number of posts in the category (all statuses); only on list }
+    AdminTag:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        slug: { type: string }
+        name: { type: string }
+    AdminComment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        body: { type: string }
+        status: { $ref: '#/components/schemas/CommentStatus' }
+        parentId: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+        post:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            title: { type: string }
+            lang: { $ref: '#/components/schemas/Lang' }
+        reader:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            email: { type: string, format: email }
+    Subscriber:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        lang: { $ref: '#/components/schemas/Lang' }
+        status: { $ref: '#/components/schemas/SubscriberStatus' }
+        source: { type: string, nullable: true }
+        confirmedAt: { type: string, format: date-time, nullable: true }
+        unsubscribedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    Campaign:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lang: { $ref: '#/components/schemas/Lang' }
+        subject: { type: string }
+        bodyHtml: { type: string }
+        status: { type: string, enum: [draft, sending, sent, failed] }
+        sentAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        stats:
+          type: object
+          description: Deliveries per status (list endpoint only)
+          additionalProperties: { type: integer }
+          example: { sent: 118, failed: 1, skipped: 2 }
+    StaffUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/StaffRole' }
+        bio: { type: string, nullable: true }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Setting:
+      type: object
+      properties:
+        key: { type: string }
+        value: { type: string }
+        updatedAt: { type: string, format: date-time }

@@ -1,0 +1,27 @@
+/* Self-hosted fonts (Fontsource) - no requests to Google at runtime.
+   UI:       Hind Siliguri (Bangla + Latin)   /  Inter (Latin)
+   Articles: Noto Serif Bengali (Bangla)      /  Source Serif 4 (Latin)
+   Only the subsets and weights we use are imported, so the browser downloads little. */
+@import '@fontsource/hind-siliguri/bengali-400.css';
+@import '@fontsource/hind-siliguri/bengali-500.css';
+@import '@fontsource/hind-siliguri/bengali-600.css';
+@import '@fontsource/hind-siliguri/bengali-700.css';
+@import '@fontsource/hind-siliguri/latin-400.css';
+@import '@fontsource/hind-siliguri/latin-500.css';
+@import '@fontsource/hind-siliguri/latin-600.css';
+@import '@fontsource/hind-siliguri/latin-700.css';
+
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
+
+@import '@fontsource/noto-serif-bengali/bengali-400.css';
+@import '@fontsource/noto-serif-bengali/bengali-700.css';
+@import '@fontsource/noto-serif-bengali/latin-400.css';
+@import '@fontsource/noto-serif-bengali/latin-700.css';
+
+@import '@fontsource/source-serif-4/latin-400.css';
+@import '@fontsource/source-serif-4/latin-400-italic.css';
+@import '@fontsource/source-serif-4/latin-700.css';
+@import '@fontsource/source-serif-4/latin-700-italic.css';

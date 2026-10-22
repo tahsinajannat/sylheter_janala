@@ -1,0 +1,90 @@
+# Development stack: Postgres + API (hot reload).
+#
+#   cp .env.example .env
+#   docker compose up --build
+#
+# API:      http://localhost:4000      (health: /health)
+# Postgres: localhost:5432
+#
+# Web:      http://localhost:3000      (Next.js, hot reload)
+
+name: sylheter-janala
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sylheter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sylheter_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-sylheter_janala}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      target: dev
+    init: true
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules # keep the container's own node_modules
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-sylheter}:${POSTGRES_PASSWORD:-sylheter_dev_password}@db:5432/${POSTGRES_DB:-sylheter_janala}
+      RUN_MIGRATIONS_ON_START: "true"
+      API_DOCS_ENABLED: "true"
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:4000}
+      SITE_TIMEZONE: ${SITE_TIMEZONE:-Asia/Dhaka}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      EMAIL_WEBHOOK_SECRET: ${EMAIL_WEBHOOK_SECRET:-}
+      ADMIN_NAME: ${ADMIN_NAME:-Admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@sylheterjanala.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
+  # --- Frontend (Next.js, hot reload) -----------------------------------------
+  web:
+    build:
+      context: ./frontend
+      target: dev
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # keep the container's own node_modules
+      - /app/.next
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api   # browser -> API
+      API_INTERNAL_URL: http://api:4000/api            # server-side rendering -> API (compose network)
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      WATCHPACK_POLLING: "true"                        # file watching through the bind mount
+
+volumes:
+  pgdata:
