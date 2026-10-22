@@ -9,6 +9,7 @@ import { OTHER_LANG } from '@/lib/i18n/config';
 import { formatDate, formatNumber } from '@/lib/i18n/format';
 import { routes } from '@/lib/routes';
 import { absoluteUrl } from '@/lib/site';
+import { AdSlot } from '@/modules/ads';
 import { SetAlternates } from '@/modules/layout';
 import { BookmarkButton } from './bookmark-button';
 import { CommentsSection } from './comments-section';
@@ -77,6 +78,8 @@ export function ArticleView({ post, lang, t }: { post: PostDetail; lang: Lang; t
       {/* HTML is sanitised by the API on save (sanitize-html allow-list) */}
       <div className="prose-article mt-6" dangerouslySetInnerHTML={{ __html: post.content }} />
 
+      <AdSlot lang={lang} placement="article_inline" className="my-8" />
+
       {post.tags.length > 0 && (
         <section className="mt-8" aria-label={t.article.tags}>
           <ul className="flex flex-wrap gap-2">
@@ -121,6 +124,8 @@ export function ArticleView({ post, lang, t }: { post: PostDetail; lang: Lang; t
           </ol>
         </section>
       )}
+
+      <AdSlot lang={lang} placement="article_bottom" className="mt-12" />
 
       <Separator className="my-12" />
       <CommentsSection postId={post.id} />

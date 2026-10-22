@@ -3,6 +3,7 @@ import { EmptyState } from '@/components/common';
 import { api } from '@/lib/api';
 import type { Lang } from '@/lib/api/types';
 import type { Dictionary } from '@/lib/i18n/dictionaries/en';
+import { AdSlot } from '@/modules/ads';
 import { VideoSection } from '@/modules/videos';
 import { EditorialSection } from './editorial-section';
 import { FeaturedSection } from './featured-section';
@@ -41,6 +42,7 @@ export async function HomePage({ lang, t }: { lang: Lang; t: Dictionary }) {
       {hero && <HeroSection lang={lang} hero={hero} rail={rail} minRead={t.article.minRead} />}
       <SpotlightSection lang={lang} title={t.home.spotlight} posts={spotlight} />
       <FeaturedSection lang={lang} title={t.home.featured} posts={featured} minRead={t.article.minRead} />
+      <AdSlot lang={lang} placement="home_mid" />
 
       <div className="grid gap-10 lg:grid-cols-3">
         {latest.length > 0 && (
@@ -48,8 +50,9 @@ export async function HomePage({ lang, t }: { lang: Lang; t: Dictionary }) {
             <LatestSection lang={lang} title={t.home.latest} viewAll={t.home.viewAll} posts={latest} />
           </div>
         )}
-        <div className={latest.length > 0 ? '' : 'lg:col-span-3'}>
+        <div className={latest.length > 0 ? 'space-y-8' : 'space-y-8 lg:col-span-3'}>
           <OtherLanguageSection lang={lang} t={t} data={d.otherLanguage} />
+          <AdSlot lang={lang} placement="home_sidebar" />
         </div>
       </div>
 

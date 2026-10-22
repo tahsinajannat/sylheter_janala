@@ -180,3 +180,24 @@ export interface Stats {
   subscribers: Partial<Record<'pending' | 'active' | 'unsubscribed' | 'bounced', number>>;
   recentPosts: { id: string; title: string; lang: Lang; status: Status; updatedAt: string; authorName: string }[];
 }
+
+export type AdKind = 'banner' | 'adsense';
+export type AdPlacement = 'home_mid' | 'home_sidebar' | 'article_inline' | 'article_bottom' | 'listing_top';
+export interface AdRow {
+  id: string;
+  name: string;
+  kind: AdKind;
+  placement: AdPlacement;
+  lang: Lang | null;
+  imageId: string | null;
+  imageUrl: string | null;
+  linkUrl: string | null;
+  altText: string | null;
+  adsenseSlot: string | null;
+  isActive: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  impressions: number;
+  clicks: number;
+  updatedAt: string;
+}

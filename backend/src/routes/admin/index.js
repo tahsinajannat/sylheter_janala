@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { allow, requireStaff } from '../../middleware/auth.js';
+import ads from './ads.js';
 import comments from './comments.js';
 import media from './media.js';
 import photoCards from './photoCards.js';
@@ -32,6 +33,7 @@ router.use('/media', media);
 router.use('/categories', categories);
 router.use('/tags', tags);
 
+router.use('/ads', editors, ads);
 router.use('/comments', editors, comments);
 router.use('/subscribers', editors, subscribers);
 router.use('/newsletters', editors, newsletters);

@@ -21,6 +21,8 @@ export type TagWithCount = S['TagWithCount'];
 export type Comment = S['Comment'];
 export type HomePayload = S['HomePayload'];
 export type NamedRef = S['NamedRef'];
+export type Ad = S['Ad'];
+export type AdPlacement = S['AdPlacement'];
 
 export type ReaderSession = NonNullable<S['ReaderSession']['data']>;
 export type Reader = ReaderSession['reader'];

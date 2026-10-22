@@ -38,6 +38,9 @@ const bn: Dictionary = {
     emptyTitle: 'এখনও কিছু প্রকাশিত হয়নি',
     emptyText: 'শীঘ্রই নতুন সংবাদ নিয়ে ফিরে আসছি।',
   },
+  ads: {
+    label: 'বিজ্ঞাপন',
+  },
   article: {
     published: 'প্রকাশ',
     by: 'লেখক',

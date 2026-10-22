@@ -13,6 +13,7 @@ import {
   LogOut,
   Mail,
   Menu,
+  Megaphone,
   MessageSquare,
   Newspaper,
   Settings,
@@ -45,6 +46,7 @@ const ITEMS: Item[] = [
   { href: '/admin/comments', label: 'Comments', icon: MessageSquare, roles: STAFF, group: 'Audience' },
   { href: '/admin/subscribers', label: 'Subscribers', icon: Users2, roles: STAFF, group: 'Audience' },
   { href: '/admin/newsletters', label: 'Newsletters', icon: Mail, roles: STAFF, group: 'Audience' },
+  { href: '/admin/ads', label: 'Ads', icon: Megaphone, roles: STAFF, group: 'Site' },
   { href: '/admin/users', label: 'Staff accounts', icon: Users, roles: ['admin'], group: 'Site' },
   { href: '/admin/settings', label: 'Site settings', icon: Settings, roles: ['admin'], group: 'Site' },
 ];

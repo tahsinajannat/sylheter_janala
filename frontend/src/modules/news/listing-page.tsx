@@ -1,6 +1,7 @@
 import type { Lang, PageMeta, PostCard } from '@/lib/api/types';
 import { Container, EmptyState, Pagination } from '@/components/common';
 import type { Dictionary } from '@/lib/i18n/dictionaries/en';
+import { AdSlot } from '@/modules/ads';
 import { PostGrid } from './post-grid';
 
 interface Props {
@@ -25,6 +26,7 @@ export function ListingPage({ lang, t, eyebrow, title, posts, meta, hrefFor, chi
         <h1 className="text-3xl font-bold sm:text-4xl">{title}</h1>
         {children}
       </header>
+      <AdSlot lang={lang} placement="listing_top" className="mb-8" />
       {posts.length === 0 ? (
         <EmptyState title={emptyText ?? t.listing.noResults} />
       ) : (

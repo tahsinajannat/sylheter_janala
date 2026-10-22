@@ -36,6 +36,9 @@ const en = {
     emptyTitle: 'Nothing published yet',
     emptyText: 'Check back soon for fresh stories.',
   },
+  ads: {
+    label: 'Advertisement',
+  },
   article: {
     published: 'Published',
     by: 'By',

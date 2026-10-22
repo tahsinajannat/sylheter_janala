@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Search } from 'lucide-react';
@@ -25,6 +26,20 @@ export function Navbar({ items }: { items: NavItem[] }) {
   const scrolled = useScrolled(80);
   const pathname = usePathname();
 
+  // The header is fixed and a spacer reserves its expanded height, so collapsing it on scroll never
+  // changes the document height (which used to shift scrollY and flip `scrolled` back and forth).
+  const headerRef = useRef<HTMLElement>(null);
+  const [expandedHeight, setExpandedHeight] = useState<number>();
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || scrolled) return;
+    const measure = () => setExpandedHeight(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scrolled]);
+
   const isActive = (href: string) => (href === routes.home(lang) ? pathname === href : pathname.startsWith(href));
 
   const links = (
@@ -47,7 +62,12 @@ export function Navbar({ items }: { items: NavItem[] }) {
   );
 
   return (
-    <header className={cn('sticky top-0 z-40 border-b bg-background/95 backdrop-blur transition-shadow', scrolled && 'shadow-md')}>
+    <>
+      <div aria-hidden style={{ height: expandedHeight }} className={expandedHeight === undefined ? 'h-28 lg:h-44' : undefined} />
+      <header
+        ref={headerRef}
+        className={cn('fixed inset-x-0 top-0 z-40 border-b bg-background/95 backdrop-blur transition-shadow', scrolled && 'shadow-md')}
+      >
       {/* utility bar - collapses on scroll */}
       <div className={cn('grid transition-[grid-template-rows] duration-300', scrolled ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]')}>
         <div className="overflow-hidden">
@@ -86,6 +106,7 @@ export function Navbar({ items }: { items: NavItem[] }) {
       <nav aria-label={t.nav.sections} className={cn('hidden border-t transition-all duration-300 lg:block', scrolled && 'lg:hidden')}>
         <Container className="flex justify-center">{links}</Container>
       </nav>
-    </header>
+      </header>
+    </>
   );
 }

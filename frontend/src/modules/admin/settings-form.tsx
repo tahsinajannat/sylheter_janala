@@ -15,6 +15,7 @@ const KNOWN: { key: string; label: string; hint?: string }[] = [
   { key: 'site_name_en', label: 'Site name (English)' },
   { key: 'bn_portal_url', label: 'Bangla portal address', hint: 'Used by the “other portal” section.' },
   { key: 'en_portal_url', label: 'English portal address' },
+  { key: 'site_adsense_client', label: 'Google AdSense publisher id', hint: 'Looks like ca-pub-1234567890123456. AdSense ads only show when this is set.' },
   { key: 'social_facebook', label: 'Facebook page link', hint: 'Keys starting with social_ appear in the footer when the value is a full https:// link.' },
   { key: 'social_youtube', label: 'YouTube channel link' },
   { key: 'social_x', label: 'X (Twitter) link' },

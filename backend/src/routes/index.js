@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { env } from '../config/env.js';
 import adminRoutes from './admin/index.js';
+import adRoutes from './ads.js';
 import authRoutes from './auth.js';
 import bookmarkRoutes from './bookmarks.js';
 import docsRoutes from './docs.js';
@@ -19,6 +20,7 @@ if (env.API_DOCS_ENABLED) router.use('/docs', docsRoutes);
 
 // public
 router.use('/home', homeRoutes);
+router.use('/ads', adRoutes);
 router.use('/posts', postRoutes);
 router.use('/photo-cards', photoCardRoutes);
 router.use('/videos', videoRoutes);

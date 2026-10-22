@@ -705,6 +705,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ads that can be shown now
+         * @description Active ads inside their date window for this language (ads without a language are included). Banners without an image are left out. The site picks one ad per placement.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Content language */
+                    lang: components["parameters"]["Lang"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Live ads */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: components["schemas"]["Ad"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ads/{id}/impression": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Count an impression */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["Id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Counted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ads/{id}/click": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Count a click */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["Id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Counted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/categories": {
         parameters: {
             query?: never;
@@ -1974,6 +2097,188 @@ export interface paths {
                     content: {
                         "application/json": {
                             data?: components["schemas"]["AdminVideo"];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        trace?: never;
+    };
+    "/admin/ads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List ads
+         * @description Roles: editor, admin. Includes inactive and expired ads with impression and click counts.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    lang?: components["schemas"]["Lang"];
+                    placement?: components["schemas"]["AdPlacement"];
+                    kind?: components["schemas"]["AdKind"];
+                    page?: components["parameters"]["Page"];
+                    limit?: components["parameters"]["Limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of ads */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: components["schemas"]["AdminAd"][];
+                            meta?: components["schemas"]["PageMeta"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /**
+         * Create an ad
+         * @description Roles: editor, admin. A banner needs `imageId` and `linkUrl`; an AdSense ad needs `adsenseSlot`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdInput"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: components["schemas"]["AdminAd"];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/ads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get an ad */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["Id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The ad */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: components["schemas"]["AdminAd"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete an ad */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["Id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Update an ad (partial) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["Id"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdInput"];
+                };
+            };
+            responses: {
+                /** @description Updated */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: components["schemas"]["AdminAd"];
                         };
                     };
                 };
@@ -3476,6 +3781,67 @@ export interface components {
         };
         VideoDetail: components["schemas"]["Video"] & {
             related: components["schemas"]["Video"][];
+        };
+        /** @enum {string} */
+        AdKind: "banner" | "adsense";
+        /** @enum {string} */
+        AdPlacement: "home_mid" | "home_sidebar" | "article_inline" | "article_bottom" | "listing_top";
+        Ad: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AdKind"];
+            placement: components["schemas"]["AdPlacement"];
+            /** Format: uri */
+            imageUrl?: string | null;
+            imageWidth?: number | null;
+            imageHeight?: number | null;
+            /** Format: uri */
+            linkUrl?: string | null;
+            alt: string;
+            adsenseSlot?: string | null;
+        };
+        AdminAd: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            kind?: components["schemas"]["AdKind"];
+            placement?: components["schemas"]["AdPlacement"];
+            /** @description null = both portals */
+            lang?: components["schemas"]["Lang"] | null;
+            /** Format: uuid */
+            imageId?: string | null;
+            /** Format: uri */
+            imageUrl?: string | null;
+            /** Format: uri */
+            linkUrl?: string | null;
+            altText?: string | null;
+            adsenseSlot?: string | null;
+            isActive?: boolean;
+            /** Format: date-time */
+            startsAt?: string | null;
+            /** Format: date-time */
+            endsAt?: string | null;
+            impressions?: number;
+            clicks?: number;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        AdInput: {
+            name: string;
+            kind: components["schemas"]["AdKind"];
+            placement: components["schemas"]["AdPlacement"];
+            lang?: components["schemas"]["Lang"] | null;
+            /** Format: uuid */
+            imageId?: string | null;
+            /** Format: uri */
+            linkUrl?: string | null;
+            altText?: string | null;
+            adsenseSlot?: string | null;
+            isActive?: boolean;
+            /** Format: date-time */
+            startsAt?: string | null;
+            /** Format: date-time */
+            endsAt?: string | null;
         };
         Category: {
             /** Format: uuid */
