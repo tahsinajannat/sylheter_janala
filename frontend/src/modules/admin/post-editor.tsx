@@ -150,17 +150,17 @@ export function PostEditor({ post, role, categories, tags }: { post: Post | null
         {editor && (
           <Panel title="Home page placement">
             <div className="grid gap-3">
-              <Toggle checked={flags.isHero} onChange={(v) => setFlags({ ...flags, isHero: v })} label="Hero story" hint="The big story at the top of the home page." />
+              <Toggle checked={flags.isHero} onChange={(v) => setFlags({ ...flags, isHero: v })} label="Hero story" hint="The big story at the top of the home page. Only one per language: choosing it here replaces the current hero." />
               <Toggle checked={flags.isSpotlight} onChange={(v) => setFlags({ ...flags, isSpotlight: v })} label="Spotlight" />
               {flags.isSpotlight && (
                 <Field label="Spotlight order" hint="Lower numbers come first.">
-                  <Input type="number" min={0} max={1000} value={flags.spotlightOrder} onChange={(e) => setFlags({ ...flags, spotlightOrder: Number(e.target.value) || 0 })} />
+                  <Input type="number" min={0} max={1000} value={flags.spotlightOrder || ''} placeholder="0" onChange={(e) => setFlags({ ...flags, spotlightOrder: Number(e.target.value) || 0 })} />
                 </Field>
               )}
               <Toggle checked={flags.isFeatured} onChange={(v) => setFlags({ ...flags, isFeatured: v })} label="Featured" />
               {flags.isFeatured && (
                 <Field label="Featured order">
-                  <Input type="number" min={0} max={1000} value={flags.featuredOrder} onChange={(e) => setFlags({ ...flags, featuredOrder: Number(e.target.value) || 0 })} />
+                  <Input type="number" min={0} max={1000} value={flags.featuredOrder || ''} placeholder="0" onChange={(e) => setFlags({ ...flags, featuredOrder: Number(e.target.value) || 0 })} />
                 </Field>
               )}
             </div>

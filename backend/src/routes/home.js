@@ -20,6 +20,7 @@ const router = Router();
 /**
  * One call for the whole home page.
  *
+ * Hero, spotlight and featured take any story type (news or editorial); latest and the rest are news only.
  * Sections: hero, spotlight (3-4 posts, `position` lets the frontend vary card layouts),
  * featured, latest, otherLanguage (latest from the other portal + its URL),
  * photoCards (slider), editorials, videos.
@@ -29,9 +30,9 @@ router.get('/', validate({ query: z.object({ lang }) }), async (req, res) => {
   const other = otherLang(l);
 
   const [heroRows, spotlight, featured, latest, otherNews, photos, editorials, videos, portal] = await Promise.all([
-    listPosts({ lang: l, where: 'AND p.is_hero', limit: 1 }),
-    listPosts({ lang: l, where: 'AND p.is_spotlight', orderBy: 'p.spotlight_order ASC, p.published_at DESC', limit: 4 }),
-    listPosts({ lang: l, where: 'AND p.is_featured', orderBy: 'p.featured_order ASC, p.published_at DESC', limit: 6 }),
+    listPosts({ lang: l, type: null, where: 'AND p.is_hero', limit: 1 }),
+    listPosts({ lang: l, type: null, where: 'AND p.is_spotlight', orderBy: 'p.spotlight_order ASC, p.published_at DESC', limit: 4 }),
+    listPosts({ lang: l, type: null, where: 'AND p.is_featured', orderBy: 'p.featured_order ASC, p.published_at DESC', limit: 6 }),
     listPosts({ lang: l, limit: 8 }),
     listPosts({ lang: other, limit: 5 }),
     query(

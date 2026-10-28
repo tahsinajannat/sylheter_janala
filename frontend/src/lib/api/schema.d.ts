@@ -714,7 +714,7 @@ export interface paths {
         };
         /**
          * Ads that can be shown now
-         * @description Active ads inside their date window for this language (ads without a language are included). Banners without an image are left out. The site picks one ad per placement.
+         * @description Active ads inside their date window for this language (ads without a language are included). Banners without an image are left out, and AdSense ads are left out until the publisher id is set. Never cached, so schedules apply to the second. The site picks one ad per placement.
          */
         get: {
             parameters: {
@@ -3799,6 +3799,8 @@ export interface components {
             linkUrl?: string | null;
             alt: string;
             adsenseSlot?: string | null;
+            /** @description AdSense publisher id (ca-pub-…); set on AdSense ads only */
+            adsenseClient?: string | null;
         };
         AdminAd: {
             /** Format: uuid */

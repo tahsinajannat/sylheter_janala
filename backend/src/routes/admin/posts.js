@@ -16,6 +16,9 @@ import { buildUpdate } from '../../utils/sql.js';
 const router = Router();
 
 const STATUS = z.enum(['draft', 'scheduled', 'published', 'archived']);
+/** The home page has one hero per language: making a story the hero takes the place from the previous one. */
+const clearOtherHeroes = (db, lang, keepId) => db.query('UPDATE posts SET is_hero = false WHERE lang = $1 AND is_hero AND id <> $2', [lang, keepId]);
+
 const order = z.number().int().min(0).max(1000);
 
 const fields = {
@@ -209,6 +212,7 @@ router.post('/', validate({ body: createSchema }), async (req, res) => {
       ],
     );
     await syncTags(db, 'post_tags', rows[0].id, b.lang, b.tagIds ?? []);
+    if (b.isHero) await clearOtherHeroes(db, b.lang, rows[0].id);
     return rows[0].id;
   });
 
@@ -253,6 +257,7 @@ router.patch('/:id', validate({ params: idParams, body: updateSchema }), async (
       await db.query(`UPDATE posts SET ${sets.join(', ')} WHERE id = $1`, [id, ...values]);
     }
     if (b.tagIds !== undefined) await syncTags(db, 'post_tags', id, row.lang, b.tagIds);
+    if (b.isHero) await clearOtherHeroes(db, row.lang, id);
   });
 
   res.json({ data: await getPost(id) });

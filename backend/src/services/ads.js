@@ -4,7 +4,7 @@ export const LIVE = (a = 'a') => `${a}.is_active AND (${a}.starts_at IS NULL OR 
 /** A banner without its image has nothing to show, so it is never served. */
 export const SERVABLE = (a = 'a') => `(${a}.kind = 'adsense' OR ${a}.image_id IS NOT NULL)`;
 
-export const shapePublicAd = (r) => ({
+export const shapePublicAd = (r, adsenseClient = null) => ({
   id: r.id,
   kind: r.kind,
   placement: r.placement,
@@ -14,4 +14,5 @@ export const shapePublicAd = (r) => ({
   linkUrl: r.link_url,
   alt: r.alt_text ?? r.name,
   adsenseSlot: r.adsense_slot,
+  adsenseClient: r.kind === 'adsense' ? adsenseClient : null,
 });

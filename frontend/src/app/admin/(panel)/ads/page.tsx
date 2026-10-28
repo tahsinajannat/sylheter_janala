@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
+import { api } from '@/lib/api';
 import { adminGet, one, pageOf, requireRole } from '@/lib/admin/server';
 import type { AdRow } from '@/lib/admin/types';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,9 @@ import { DataTable, EmptyRow, LangBadge, PageHeader, Pager } from '@/modules/adm
 export const metadata: Metadata = { title: 'Ads' };
 
 /** What the visitor would get right now: live, paused, scheduled or finished. */
-function runState(a: AdRow, now: number) {
+function runState(a: AdRow, now: number, adsenseReady: boolean) {
+  if (a.kind === 'banner' && !a.imageUrl) return { label: 'No image', style: 'bg-red-100 text-red-900' };
+  if (a.kind === 'adsense' && !adsenseReady) return { label: 'Needs publisher id', style: 'bg-red-100 text-red-900' };
   if (!a.isActive) return { label: 'Paused', style: 'bg-zinc-100 text-zinc-700' };
   if (a.startsAt && new Date(a.startsAt).getTime() > now) return { label: 'Scheduled', style: 'bg-amber-100 text-amber-900' };
   if (a.endsAt && new Date(a.endsAt).getTime() <= now) return { label: 'Ended', style: 'bg-zinc-100 text-zinc-700' };
@@ -26,7 +29,11 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
   const lang = one(sp.lang);
   const placement = one(sp.placement);
   const kind = one(sp.kind);
-  const list = await adminGet<AdRow[]>('/admin/ads', { lang, placement, kind, page: pageOf(sp.page), limit: 20 });
+  const [list, settings] = await Promise.all([
+    adminGet<AdRow[]>('/admin/ads', { lang, placement, kind, page: pageOf(sp.page), limit: 20 }),
+    api.taxonomy.settings().catch(() => ({}) as Record<string, string>),
+  ]);
+  const adsenseReady = /^ca-pub-\d+$/.test(settings.site_adsense_client ?? '');
   const now = Date.now();
 
   return (
@@ -65,7 +72,7 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
       </form>
       <DataTable head={['Ad', 'Placement', 'Language', 'Status', 'Runs', 'Impressions', 'Clicks', 'CTR']}>
         {list.data.map((a) => {
-          const state = runState(a, now);
+          const state = runState(a, now, adsenseReady);
           const tracked = a.kind === 'banner';
           return (
             <tr key={a.id}>

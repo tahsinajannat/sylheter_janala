@@ -108,12 +108,15 @@ function AdSense({ slot, client }: { slot: string; client: string }) {
 }
 
 /** One ad with its "Advertisement" label. Banners report impressions and clicks to the API. */
-export function AdView({ ad, adsenseClient, className }: { ad: Ad; adsenseClient?: string; className?: string }) {
+export function AdView({ ad, className }: { ad: Ad; className?: string }) {
   const { t } = useI18n();
+  const body =
+    ad.kind === 'banner' ? (ad.imageUrl && ad.linkUrl ? <Banner ad={ad} /> : null) : ad.adsenseSlot && ad.adsenseClient ? <AdSense slot={ad.adsenseSlot} client={ad.adsenseClient} /> : null;
+  if (!body) return null;
   return (
     <aside aria-label={t.ads.label} className={cn('text-center', className)}>
       <p className="mb-1 text-[11px] tracking-wider text-muted-foreground uppercase">{t.ads.label}</p>
-      {ad.kind === 'banner' ? <Banner ad={ad} /> : ad.adsenseSlot && adsenseClient ? <AdSense slot={ad.adsenseSlot} client={adsenseClient} /> : null}
+      {body}
     </aside>
   );
 }

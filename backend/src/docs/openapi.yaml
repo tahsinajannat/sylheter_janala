@@ -378,7 +378,7 @@ paths:
     get:
       tags: [Ads]
       summary: Ads that can be shown now
-      description: Active ads inside their date window for this language (ads without a language are included). Banners without an image are left out. The site picks one ad per placement.
+      description: Active ads inside their date window for this language (ads without a language are included). Banners without an image are left out, and AdSense ads are left out until the publisher id is set. Never cached, so schedules apply to the second. The site picks one ad per placement.
       parameters: [{ $ref: '#/components/parameters/Lang' }]
       responses:
         '200':
@@ -2057,6 +2057,7 @@ components:
         linkUrl: { type: string, format: uri, nullable: true }
         alt: { type: string }
         adsenseSlot: { type: string, nullable: true }
+        adsenseClient: { type: string, nullable: true, description: 'AdSense publisher id (ca-pub-…); set on AdSense ads only' }
     AdminAd:
       type: object
       properties:

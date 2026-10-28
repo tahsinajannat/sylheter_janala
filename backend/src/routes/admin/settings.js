@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../../db/pool.js';
 import { validate } from '../../middleware/validate.js';
+import { badRequest } from '../../utils/errors.js';
 
 // Site settings key/value store - admin only (enforced in admin/index.js).
 const router = Router();
@@ -18,6 +19,10 @@ router.put(
     body: z.object({ value: z.string().max(2000) }),
   }),
   async (req, res) => {
+    // The site only renders AdSense for a well-formed publisher id, so refuse anything else here instead of silently showing no ads.
+    if (req.valid.params.key === 'site_adsense_client' && req.valid.body.value !== '' && !/^ca-pub-\d+$/.test(req.valid.body.value)) {
+      throw badRequest('The AdSense publisher id looks like ca-pub-1234567890123456');
+    }
     const { rows } = await query(
       `INSERT INTO site_settings (key, value) VALUES ($1, $2)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()

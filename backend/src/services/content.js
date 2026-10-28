@@ -41,11 +41,12 @@ export const shapePostCard = (r) => ({
 });
 
 /** Latest published posts with optional extra WHERE (must use $-params after $1=lang). */
+/** `type: null` lists news and editorials together. */
 export async function listPosts({ lang, type = 'news', where = '', params = [], orderBy = 'p.published_at DESC', limit, offset = 0 }) {
   const base = params.length + 1;
   const { rows } = await query(
     `SELECT ${POST_CARD_COLS} ${POST_CARD_FROM}
-     WHERE p.lang = $1 AND p.type = $${base + 1}::post_type AND ${PUBLISHED('p')} ${where}
+     WHERE p.lang = $1 AND ($${base + 1}::post_type IS NULL OR p.type = $${base + 1}::post_type) AND ${PUBLISHED('p')} ${where}
      ORDER BY ${orderBy}
      LIMIT $${base + 2} OFFSET $${base + 3}`,
     [lang, ...params, type, limit, offset],
