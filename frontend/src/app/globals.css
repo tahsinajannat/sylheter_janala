@@ -58,15 +58,15 @@
 }
 
 /* ───────── Fonts follow the page language ─────────
-   Bangla pages lead with Hind Siliguri / Noto Serif Bengali; English pages with Inter / Source Serif 4.
+   Bangla pages use Noto Serif Bengali, English pages use Alice, for the interface and for articles alike.
    The other family stays in the stack so mixed text (a Bangla name in an English page) still renders well. */
 html[lang='bn'] {
-  --ui-font: 'Hind Siliguri', 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --article-font: 'Noto Serif Bengali', 'Source Serif 4', ui-serif, Georgia, serif;
+  --ui-font: 'Noto Serif Bengali', 'Alice', ui-serif, Georgia, serif;
+  --article-font: 'Noto Serif Bengali', 'Alice', ui-serif, Georgia, serif;
 }
 html[lang='en'] {
-  --ui-font: 'Inter', 'Hind Siliguri', ui-sans-serif, system-ui, sans-serif;
-  --article-font: 'Source Serif 4', 'Noto Serif Bengali', ui-serif, Georgia, serif;
+  --ui-font: 'Alice', 'Noto Serif Bengali', ui-serif, Georgia, serif;
+  --article-font: 'Alice', 'Noto Serif Bengali', ui-serif, Georgia, serif;
 }
 
 @layer base {
