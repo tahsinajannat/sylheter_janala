@@ -17,7 +17,9 @@
     "seed": "node src/db/seed.js",
     "seed:demo": "node src/db/seed.js --demo",
     "test": "node --test tests/*.test.js",
-    "docs:validate": "node scripts/validate-openapi.js"
+    "docs:validate": "node scripts/validate-openapi.js",
+    "seed:no-migrate": "node src/db/seed-no-migrate.js",
+    "seed:demo:no-migrate": "node src/db/seed-no-migrate.js --demo"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
