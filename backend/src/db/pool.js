@@ -5,7 +5,16 @@ import { env } from '../config/env.js';
 pg.types.setTypeParser(20, (v) => parseInt(v, 10));
 // `date` columns -> plain 'YYYY-MM-DD' strings instead of Date objects (no timezone surprises).
 pg.types.setTypeParser(1082, (v) => v);
-
+console.log('[DB DEBUG]', {
+  databaseUrlExists: Boolean(env.DATABASE_URL),
+  hostname: env.DATABASE_URL
+    ? new URL(env.DATABASE_URL).hostname
+    : 'MISSING',
+  database: env.DATABASE_URL
+    ? new URL(env.DATABASE_URL).pathname
+    : 'MISSING',
+  ssl: env.DB_SSL,
+});
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   max: env.DB_POOL_MAX,
